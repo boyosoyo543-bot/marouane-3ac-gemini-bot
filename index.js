@@ -18,7 +18,8 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json')
 
 const PHONE = (process.env.PHONE || '').replace(/[^0-9]/g, '')
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ''
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-4-argon'
+const GEMINI_MODEL =
+  process.env.GEMINI_MODEL || 'gemini-3-flash-preview'
 
 const logger = pino({ level: 'silent' })
 const users = new Map()
@@ -38,6 +39,13 @@ const SUBJECTS = [
   'الجغرافيا',
   'التربية الإسلامية'
 ]
+
+function normalize(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[ًٌٍَُِّْـ]/g, '')
+    .trim()
+}
 
 function ensureFolders() {
   fs.mkdirSync(AUTH_DIR, { recursive: true })
@@ -181,13 +189,6 @@ function loadKnowledge() {
   )
 }
 
-function normalize(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/[ًٌٍَُِّْـ]/g, '')
-    .trim()
-}
-
 function findKnowledge(question, subject) {
   const words =
     normalize(question)
@@ -226,10 +227,72 @@ function findKnowledge(question, subject) {
     .slice(0, 5)
 }
 
-function buildSystemInstruction(
-  user,
-  context
-) {
+function casualReply(text) {
+  const value = normalize(text)
+
+  if (
+    [
+      'سلام',
+      'سلام عليكم',
+      'السلام عليكم',
+      'salam',
+      'hello',
+      'hi'
+    ].includes(value)
+  ) {
+    return (
+      'وعليكم السلام، مرحبا بك. ' +
+      'أنا المساعد الدراسي من تطوير مروان. ' +
+      'كيف نقدر نعاونك اليوم؟'
+    )
+  }
+
+  if (
+    value.includes('لباس') ||
+    value.includes('لاباس') ||
+    value.includes('كيداير') ||
+    value.includes('كيف داير')
+  ) {
+    return (
+      'الحمد لله بخير، شكرا على السؤال. ' +
+      'ونتا لباس؟ بغيتي نشرح ليك شي درس ديال الثالثة إعدادي؟'
+    )
+  }
+
+  if (
+    value.includes('شكرا') ||
+    value.includes('مرسي')
+  ) {
+    return (
+      'بلا جميل، أنا هنا باش نعاونك تفهم الدرس مزيان.'
+    )
+  }
+
+  if (
+    value.includes('شكون نتا') ||
+    value.includes('من نتا') ||
+    value.includes('شنو كتدير')
+  ) {
+    return (
+      'أنا مساعد دراسي من تطوير مروان، ' +
+      'كنعاون تلاميذ الثالثة إعدادي يفهمو الدروس خطوة بخطوة.'
+    )
+  }
+
+  return null
+}
+
+function detectSubject(text) {
+  const value = normalize(text)
+
+  return (
+    SUBJECTS.find(subject =>
+      value.includes(normalize(subject))
+    ) || null
+  )
+}
+
+function systemInstruction(user, context) {
   return `
 أنت مساعد دراسي مغربي ذكي من تطوير المبرمج مروان.
 
@@ -240,42 +303,35 @@ ${user.subject || 'غير محددة'}
 لا تقل إنك مروان.
 قل فقط إنك مساعد دراسي من تطوير مروان عند الحاجة.
 
-دورك هو شرح الدروس من الصفر بحال أستاذ صبور.
+شرح الدروس من الصفر بحال أستاذ صبور.
 استعمل العربية الواضحة والدارجة المغربية عند الحاجة.
+قسم الشرح إلى مراحل قصيرة ولا ترسل درساً طويلاً دفعة واحدة.
 
-قسم الشرح إلى مراحل قصيرة.
-لا ترسل درساً طويلاً دفعة واحدة.
+بعد كل فكرة مهمة اسأل:
+واش فهمتي هاد الجزء؟
 
-بعد كل فكرة مهمة اسأل التلميذ:
-"واش فهمتي هاد الجزء؟"
-
-إذا قال التلميذ:
-"ما فهمتش"
-
+إذا قال التلميذ ما فهمتش:
 لا تكرر نفس الشرح.
-استعمل كلمات أبسط وتشبيهاً أو مثالاً جديداً.
+استعمل كلمات أبسط وتشبيهاً ومثالاً جديداً.
 
-إذا قال:
-"فهمت"
-
+إذا قال التلميذ فهمت:
 كمل للمرحلة التالية.
 
-عندما يطلب التلميذ شرح درس:
+عندما يطلب درساً:
 1. اشرح الفكرة العامة.
 2. اشرح المفاهيم.
 3. أعط مثالاً بسيطاً.
 4. أعط مثالاً محلولاً.
-5. قدم خلاصة قصيرة.
+5. قدم خلاصة.
 6. أعط تمريناً صغيراً.
 
-عندما يرسل صورة:
-- اقرأ فقط ما يظهر فيها.
-- إذا كانت الصورة غير واضحة أخبره بذلك.
-- اشرح الحل خطوة بخطوة.
-- لا تقفز مباشرة إلى الجواب النهائي.
+إذا أرسل صورة تمرين:
+اقرأ فقط ما يظهر في الصورة.
+إذا كانت غير واضحة أخبره بذلك.
+ثم اشرح الحل خطوة بخطوة.
 
 لا تخترع أرقاماً أو معلومات.
-إذا لم تجد المعلومة في المراجع، قل إنك لا تملك مرجعاً كافياً.
+إذا لم تجد المعلومة في المراجع، صرح بذلك.
 
 في نهاية كل جواب تعليمي اطرح سؤال فهم واحداً فقط.
 
@@ -318,16 +374,13 @@ async function askGemini(
     genAI.getGenerativeModel({
       model: GEMINI_MODEL,
       systemInstruction:
-        buildSystemInstruction(
-          user,
-          context
-        )
+        systemInstruction(user, context)
     })
 
   const previous =
     (user.history || []).slice(-8)
 
-  const historyText =
+  const oldConversation =
     previous.length
       ? '\nسياق الحديث السابق:\n' +
         previous
@@ -339,7 +392,7 @@ async function askGemini(
 
   const parts = [
     {
-      text: question + historyText
+      text: question + oldConversation
     }
   ]
 
@@ -392,19 +445,6 @@ async function askGemini(
   return answer
 }
 
-function detectSubject(text) {
-  const normalized =
-    normalize(text)
-
-  return (
-    SUBJECTS.find(subject =>
-      normalized.includes(
-        normalize(subject)
-      )
-    ) || null
-  )
-}
-
 function helpText() {
   return `
 مرحبا بك في المساعد الدراسي من تطوير مروان.
@@ -427,12 +467,6 @@ async function start() {
   ensureFolders()
   loadUsers()
   loadKnowledge()
-
-  if (!GEMINI_API_KEY) {
-    console.log(
-      'WARNING: GEMINI_API_KEY غير موجودة.'
-    )
-  }
 
   const {
     state,
@@ -562,8 +596,7 @@ async function start() {
 
           if (
             lower === 'help' ||
-            lower === 'مساعدة' ||
-            lower === 'سلام'
+            lower === 'مساعدة'
           ) {
             await sock.sendMessage(
               chatId,
@@ -587,6 +620,20 @@ async function start() {
               {
                 text:
                   'تم مسح الذاكرة. كتب المادة من جديد.'
+              }
+            )
+
+            continue
+          }
+
+          const smallTalk =
+            casualReply(text)
+
+          if (smallTalk) {
+            await sock.sendMessage(
+              chatId,
+              {
+                text: smallTalk
               }
             )
 
@@ -625,7 +672,8 @@ async function start() {
               chatId,
               {
                 text:
-                  'حدد المادة أولاً، مثلاً: مادة الرياضيات أو مادة اللغة العربية.'
+                  'حدد المادة أولاً، مثلاً: ' +
+                  'مادة الرياضيات أو مادة اللغة العربية.'
               }
             )
 
@@ -689,11 +737,16 @@ async function start() {
           )
 
           try {
+            const quotaError =
+              /429|quota|too many requests|limit: 0/i
+                .test(error.message)
+
             await sock.sendMessage(
               message.key.remoteJid,
               {
-                text:
-                  `وقع مشكل: ${error.message}`
+                text: quotaError
+                  ? 'الموديل المجاني سالات أو ما عندوش الحصة دابا. بدّل GEMINI_MODEL إلى gemini-3-flash-preview فـRailway، ومن بعد دير Redeploy.'
+                  : `وقع مشكل: ${error.message}`
               }
             )
           } catch {}
@@ -704,3 +757,4 @@ async function start() {
 }
 
 start()
+            
