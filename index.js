@@ -14,6 +14,7 @@ import path from 'path'
 const AUTH_DIR = process.env.AUTH_DIR || './auth'
 const DATA_DIR = process.env.DATA_DIR || './data'
 const KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || './knowledge'
+const PROMPT_FILE = './prompts/teacher.txt'
 const USERS_FILE = path.join(DATA_DIR, 'users.json')
 
 const PHONE = (process.env.PHONE || '').replace(/[^0-9]/g, '')
@@ -24,6 +25,7 @@ const GEMINI_MODEL =
 const logger = pino({ level: 'silent' })
 const users = new Map()
 const knowledge = []
+let teacherPrompt = ''
 
 const sleep = ms =>
   new Promise(resolve => setTimeout(resolve, ms))
@@ -52,30 +54,65 @@ function ensureFolders() {
   fs.mkdirSync(AUTH_DIR, { recursive: true })
   fs.mkdirSync(DATA_DIR, { recursive: true })
   fs.mkdirSync(KNOWLEDGE_DIR, { recursive: true })
+  fs.mkdirSync('./prompts', { recursive: true })
 
   if (!fs.existsSync(USERS_FILE)) {
     fs.writeFileSync(USERS_FILE, '{}', 'utf8')
   }
 }
 
+function loadTeacherPrompt() {
+  try {
+    teacherPrompt = fs.readFileSync(
+      PROMPT_FILE,
+      'utf8'
+    ).trim()
+
+    console.log('Teacher prompt loaded')
+  } catch (error) {
+    teacherPrompt = `
+أنت مساعد دراسي مغربي من تطوير المبرمج مروان.
+أنت مخصص لجميع مواد الثالثة إعدادي.
+اشرح بطريقة بسيطة، وفسر دائماً علاش وكيفاش.
+`
+    console.log(
+      'PROMPT LOAD ERROR:',
+      error.message
+    )
+  }
+}
+
 function loadUsers() {
   try {
     const saved = JSON.parse(
-      fs.readFileSync(USERS_FILE, 'utf8')
+      fs.readFileSync(
+        USERS_FILE,
+        'utf8'
+      )
     )
 
-    for (const [id, user] of Object.entries(saved)) {
+    for (
+      const [id, user]
+      of Object.entries(saved)
+    ) {
       users.set(id, user)
     }
   } catch (error) {
-    console.log('USERS LOAD ERROR:', error.message)
+    console.log(
+      'USERS LOAD ERROR:',
+      error.message
+    )
   }
 }
 
 function saveUsers() {
   fs.writeFileSync(
     USERS_FILE,
-    JSON.stringify(Object.fromEntries(users), null, 2),
+    JSON.stringify(
+      Object.fromEntries(users),
+      null,
+      2
+    ),
     'utf8'
   )
 }
@@ -94,8 +131,9 @@ function getUser(id) {
 
 function getContent(message) {
   return (
-    normalizeMessageContent(message.message) ||
-    message.message
+    normalizeMessageContent(
+      message.message
+    ) || message.message
   )
 }
 
@@ -152,9 +190,12 @@ function loadKnowledge() {
 
     try {
       const text =
-        fs.readFileSync(file, 'utf8')
-          .replace(/\s+/g, ' ')
-          .trim()
+        fs.readFileSync(
+          file,
+          'utf8'
+        )
+        .replace(/\s+/g, ' ')
+        .trim()
 
       if (!text) continue
 
@@ -164,7 +205,9 @@ function loadKnowledge() {
         start += 1600
       ) {
         const part =
-          text.slice(start, start + 1800).trim()
+          text
+            .slice(start, start + 1800)
+            .trim()
 
         if (part.length > 80) {
           knowledge.push({
@@ -213,7 +256,9 @@ function findKnowledge(question, subject) {
 
       if (
         subject &&
-        searchable.includes(normalize(subject))
+        searchable.includes(
+          normalize(subject)
+        )
       ) {
         score += 5
       }
@@ -288,15 +333,21 @@ function detectSubject(text) {
 
   return (
     SUBJECTS.find(subject =>
-      value.includes(normalize(subject))
+      value.includes(
+        normalize(subject)
+      )
     ) || null
   )
 }
 
-function buildSystemInstruction(user, context) {
+function buildSystemInstruction(
+  user,
+  context
+) {
   return `
-أنت مساعد دراسي مغربي ذكي من تطوير المبرمج مروان.
+${teacherPrompt}
 
+أنت مساعد دراسي مغربي ذكي من تطوير المبرمج مروان.
 أنت مخصص لجميع مواد الثالثة إعدادي فقط.
 المادة الحالية هي:
 ${user.subject || 'غير محددة'}
@@ -304,70 +355,36 @@ ${user.subject || 'غير محددة'}
 لا تقل إنك مروان.
 قل فقط إنك مساعد دراسي من تطوير مروان عند الحاجة.
 
-أنت مربي ومساعد قريب من التلميذ، ماشي أستاذ جاف يعطي جواباً محفوظاً.
-استعمل دارجة مغربية مبسطة ومفهومة، مخلطة بعربية فصحى سهلة عند الحاجة.
+أنت مربي قريب من التلميذ، ماشي أستاذ جاف.
+استعمل دارجة مغربية مبسطة ومفهومة مع عربية فصحى سهلة.
 
-قواعد الشرح الإلزامية:
+طبق هذه القواعد دائماً:
 
-1. ممنوع الجواب الناشف.
-أي معلومة أو تاريخ أو قاعدة أو نتيجة، شرح علاش وكيفاش وصلنا ليها.
+- لا تعط جواباً ناشفاً أو معلومة محفوظة فقط.
+- اشرح دائماً علاش وكيفاش.
+- في التاريخ اشرح الأسباب والنتائج والعلاقة بين الأحداث.
+- في الجغرافيا اشرح العلاقة بين الظواهر والمعطيات.
+- في الرياضيات والعلوم اشرح القاعدة وسبب استعمالها.
+- في اللغات اشرح القواعد والأخطاء بأمثلة.
+- استعمل أمثلة وتشبيهات من الحياة اليومية لتقريب المفاهيم.
+- بسط الشرح حسب مستوى الثالثة إعدادي مع الحفاظ على الدقة.
+- لا تعط الحل النهائي مباشرة إذا كان التلميذ يحتاج أن يتعلم.
+- خدم مع التلميذ خطوة بخطوة.
+- قسم الدرس إلى مراحل قصيرة.
+- في نهاية كل مرحلة اطرح سؤال فهم واحداً.
+- إذا قال ما فهمتش، استعمل شرحاً ومثالاً جديدين.
+- إذا قال فهمت، تابع للمرحلة التالية.
+- لا تخترع أرقاماً أو تواريخ أو مراجع.
+- إذا كانت الصورة غير واضحة، قل ذلك ولا تخمن.
 
-2. بين المنطق وراء الجواب.
-في التاريخ شرح الأسباب والنتائج.
-في الجغرافيا شرح العلاقة بين الظواهر.
-في الرياضيات والعلوم شرح القاعدة وسبب استعمالها.
-
-3. استعمل التقريب والتشبيه بأمثلة من الحياة اليومية.
-وضح أن المثال غير للتقريب وأن المعلومة العلمية هي الأساس.
-
-4. بسط الشرح حسب سن تلميذ الثالثة إعدادي.
-ما تستعملش تعقيد أكاديمي زائد، وحافظ على الدقة العلمية.
-
-5. ما تعطيش كليشيه أو جواب واجد فقط.
-خدم مع التلميذ خطوة بخطوة وخليه يفهم قبل ما تكمل.
-
-6. في آخر كل مرحلة طرح سؤالاً تفاعلياً واحداً، مثل:
-واش فهمتي علاش؟
-أو:
-علاش درنا هاد الخطوة؟
-
-قسم الدرس إلى مراحل قصيرة.
-ما ترسلش درساً طويلاً دفعة واحدة.
-
-إذا قال التلميذ:
-ما فهمتش
-
-ما تكرر نفس الكلام.
-استعمل كلمات أبسط ومثالاً جديداً وتشبيهاً واضحاً.
-
-إذا قال:
-فهمت
-
-كمل للمرحلة التالية.
-
-عندما يطلب التلميذ شرح درس، قدم بالترتيب:
-
-1. الفكرة العامة.
-2. المتطلبات السابقة.
-3. شرح المفاهيم.
-4. مثال بسيط.
-5. مثال محلول مع تفسير علاش.
-6. خلاصة قصيرة.
-7. تمرين صغير للتأكد من الفهم.
-
-إذا أرسل صورة تمرين:
-
-- اقرأ فقط ما يظهر في الصورة.
-- إذا كانت الصورة غير واضحة، أخبره بذلك.
-- حدد المطلوب.
-- اشرح الحل خطوة بخطوة.
-- فسر سبب كل خطوة.
-- لا تقفز مباشرة إلى الجواب النهائي.
-
-لا تخترع أرقاماً أو معلومات أو مراجع.
-إذا لم تجد المعلومة في المراجع، قل إنك لا تملك مرجعاً كافياً.
-
-في نهاية كل جواب تعليمي اطرح سؤال فهم واحداً فقط.
+عندما يطلب التلميذ شرح درس:
+1. قدم الفكرة العامة.
+2. اشرح المتطلبات السابقة.
+3. اشرح المفاهيم.
+4. أعط مثالاً بسيطاً.
+5. أعط مثالاً محلولاً مع تفسير علاش.
+6. قدم خلاصة قصيرة.
+7. أعط تمريناً صغيراً.
 
 مراجع الدروس:
 ${context || 'لا توجد مراجع مناسبة حالياً.'}
@@ -417,7 +434,7 @@ async function askGemini(
   const previous =
     (user.history || []).slice(-8)
 
-  const oldConversation =
+  const historyText =
     previous.length
       ? '\nسياق الحديث السابق:\n' +
         previous
@@ -429,14 +446,16 @@ async function askGemini(
 
   const parts = [
     {
-      text: question + oldConversation
+      text: question + historyText
     }
   ]
 
   if (imageBuffer) {
     parts.push({
       inlineData: {
-        data: imageBuffer.toString('base64'),
+        data: imageBuffer.toString(
+          'base64'
+        ),
         mimeType
       }
     })
@@ -469,7 +488,8 @@ async function askGemini(
     ...(user.history || []),
     {
       role: 'user',
-      content: question || '[صورة تمرين]'
+      content:
+        question || '[صورة تمرين]'
     },
     {
       role: 'assistant',
@@ -515,6 +535,7 @@ reset
 
 async function start() {
   ensureFolders()
+  loadTeacherPrompt()
   loadUsers()
   loadKnowledge()
 
@@ -815,4 +836,4 @@ async function start() {
 }
 
 start()
-  
+                                
