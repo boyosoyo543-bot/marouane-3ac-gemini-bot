@@ -1,0 +1,17 @@
+{
+  "name": "marouane-3ac-gemini-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "latest",
+    "@google/generative-ai": "latest",
+    "pino": "^9.6.0"
+  }
+}
